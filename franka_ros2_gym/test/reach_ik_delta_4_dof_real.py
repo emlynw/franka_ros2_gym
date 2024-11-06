@@ -22,8 +22,8 @@ def main():
         
         while not terminated and not truncated:
             if render_mode == "rgb_array":
-                pixels = obs["images"]["front"]
-                cv2.imshow("pixels", cv2.resize(cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR), display_resolution))
+                pixels = obs["images"]["front_depth"]
+                cv2.imshow("pixels", cv2.resize(pixels, display_resolution))
                 cv2.waitKey(waitkey)
 
             if i < 15:
@@ -41,11 +41,8 @@ def main():
             else:
                 action = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
             
-            # # Random action
-            # action = env.action_space.sample()
-            
             obs, reward, terminated, truncated, info = env.step(action)
-            print(obs['images']['front'].shape)
+            print(obs['images']['front_depth'].shape)
             i+=1
         
 if __name__ == "__main__":
