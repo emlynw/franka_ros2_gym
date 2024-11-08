@@ -18,6 +18,8 @@ ros2 launch realsense2_camera rs_launch.py serial_no:=_048122070681 camera_names
 
 ros2 launch realsense2_camera rs_launch.py serial_no:=_801212071197 camera_namespace:=camera2 camera_name:=camera2 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
 
+ros2 launch realsense2_camera rs_launch.py serial_no:=_752112070781 camera_namespace:=camera2 camera_name:=camera2 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
+
 
 ### editing and adding to the simulation:
 - The gymnasium simulation environments are found in /gym_INB0104/gym_INB0104/envs
