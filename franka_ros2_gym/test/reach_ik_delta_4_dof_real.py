@@ -8,7 +8,7 @@ np.set_printoptions(suppress=True)
 
 def main():
     render_mode = "rgb_array"
-    env = gym.make("franka_ros2_gym/ReachIKDeltaRealEnv", render_mode=render_mode, ee_dof=4)
+    env = gym.make("franka_ros2_gym/ReachIKDeltaRealEnv", render_mode=render_mode, ee_dof=4, cameras=["wrist2"])
     env = TimeLimit(env, max_episode_steps=200)    
     waitkey = 1
     display_resolution = (720, 720)
@@ -22,12 +22,12 @@ def main():
         
         while not terminated and not truncated:
             if render_mode == "rgb_array":
-                pixels = obs["images"]["front_depth"]
+                pixels = obs["images"]["wrist2"]
                 cv2.imshow("pixels", cv2.resize(pixels, display_resolution))
                 cv2.waitKey(waitkey)
 
             if i < 15:
-                action = np.array([0.2, 0.0, 0.0, 0.0, -1.0])
+                action = np.array([0.3, 0.0, 0.0, 0.0, -1.0])
             elif i < 50:
                 action = np.array([0.0, 0.0, -1.0, 0.0, -1.0])
             elif i < 80:
@@ -42,7 +42,6 @@ def main():
                 action = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
             
             obs, reward, terminated, truncated, info = env.step(action)
-            print(obs['images']['front_depth'].shape)
             i+=1
         
 if __name__ == "__main__":

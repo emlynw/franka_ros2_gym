@@ -33,6 +33,8 @@ class ReachIKDeltaRealEnv(gym.Env):
         pos_scale=0.1,
         rot_scale=0.05,
         control_dt=0.1,
+        cameras=["wrist1", "wrist2", "front"],
+        depth = False,
         **kwargs
     ):
         super().__init__()
@@ -45,6 +47,8 @@ class ReachIKDeltaRealEnv(gym.Env):
         self.pos_scale = pos_scale
         self.rot_scale = rot_scale
         self.control_dt = control_dt
+        self.cameras = cameras
+        self.depth = depth
         
         # Action and observation spaces
         self.action_space = Box(
@@ -67,13 +71,16 @@ class ReachIKDeltaRealEnv(gym.Env):
         
         self.observation_space = Dict({"state": state_space})
         if image_obs:
-            self.observation_space["images"] = Dict({
-                "wrist": Box(0, 255, shape=(self.height, self.width, 3), dtype=np.uint8),
-                "wrist_depth": Box(0, 65535, shape=(self.height, self.width), dtype=np.uint16),
-                "front": Box(0, 255, shape=(self.height, self.width, 3), dtype=np.uint8),
-                "front_depth": Box(0, 65535, shape=(self.height, self.width), dtype=np.uint16),
-            })
-        
+            self.observation_space["images"] = Dict()
+            for camera in self.cameras:
+                self.observation_space["images"][camera] = Box(
+                    0, 255, shape=(self.height, self.width, 3), dtype=np.uint8
+                )
+                if self.depth:
+                    self.observation_space["images"][f"{camera}_depth"] = Box(
+                        0, 65535, shape=(self.height, self.width), dtype=np.uint16
+                    )
+
         # Control parameters
         self._CARTESIAN_BOUNDS = np.array([
             [0.28, -0.35, 0.02],
@@ -89,17 +96,16 @@ class ReachIKDeltaRealEnv(gym.Env):
         self.initial_orientation = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
         self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
-        # State variables
-        self.state_initialized = False
-        self.gripper_initialized = False
-        self.image1_initialized = False
-        self.image2_initialized = False
-        self.depth1_initialized = False
-        self.depth2_initialized = False
-        self.image1 = None
-        self.image2 = None
-        self.depth1 = None
-        self.depth2 = None
+        # ROS setup
+        self.required_attributes = ["rot_mat", "x", "y", "z", "gripper_width"] + [
+            camera for camera in self.cameras
+        ] + [f"{camera}_depth" for camera in self.cameras if self.depth]
+        for attr in self.required_attributes:
+            setattr(self, attr, None)
+
+        # Initialize attributes to None
+        for attr in self.required_attributes:
+            setattr(self, attr, None)
         
         # Gripper state tracking
         self.prev_grasp_time = 0.0
@@ -113,9 +119,6 @@ class ReachIKDeltaRealEnv(gym.Env):
         self.gripper_vec = self.gripper_dict["open"]
         self.ros_setup()
         self.last_step_time = time.time()
-        self.old_state = None
-        self.old_image = None
-        self.old_gripper = None
 
     def ros_setup(self):
         # Initialize ROS node
@@ -149,39 +152,25 @@ class ReachIKDeltaRealEnv(gym.Env):
             self.gripper_callback,
             qos_profile=custom_qos_profile,
             callback_group=self.callback_group
-
-        )
-        self.camera1_sub = self.node.create_subscription(
-            Image,
-            '/camera1/camera1/color/image_raw',
-            self.camera1_callback,
-            qos_profile=custom_qos_profile,
-            callback_group=self.callback_group
-        )
-        self.camera1_depth_sub = self.node.create_subscription(
-            Image,
-            '/camera1/camera1/aligned_depth_to_color/image_raw',
-            self.camera1_depth_callback,
-            qos_profile=custom_qos_profile,
-            callback_group=self.callback_group
-        )
-        self.camera2_sub = self.node.create_subscription(
-            Image,
-            '/camera2/camera2/color/image_raw',
-            self.camera2_callback,
-            qos_profile=custom_qos_profile,
-            callback_group=self.callback_group
-        )
-        self.camera2_depth_sub = self.node.create_subscription(
-            Image,
-            '/camera2/camera2/aligned_depth_to_color/image_raw',
-            self.camera2_depth_callback,
-            qos_profile=custom_qos_profile,
-            callback_group=self.callback_group
         )
 
         self.bridge = CvBridge()
+        for camera in self.cameras:
+            setattr(self, f"{camera}_sub", self.node.create_subscription(
+                Image, f'/{camera}/color/image_raw',
+                getattr(self, f"{camera}_callback"), qos_profile=custom_qos_profile, callback_group=self.callback_group
+            ))
+            if self.depth:
+                setattr(self, f"{camera}_depth_sub", self.node.create_subscription(
+                    Image, f'/{camera}/aligned_depth_to_color/image_raw',
+                    getattr(self, f"{camera}_depth_callback"), qos_profile=custom_qos_profile, callback_group=self.callback_group
+                ))
 
+        print("ROS setup complete")
+
+    def are_attributes_initialized(self):
+        """Check if all required attributes are non-None."""
+        return all(getattr(self, attr) is not None for attr in self.required_attributes)
    
     def state_callback(self, data):
         self.rot_mat = np.array([
@@ -192,26 +181,25 @@ class ReachIKDeltaRealEnv(gym.Env):
         self.x = np.float32(data.o_t_ee[12])
         self.y = np.float32(data.o_t_ee[13])
         self.z = np.float32(data.o_t_ee[14])
-        self.state_initialized = True
 
     def gripper_callback(self, data):
         self.gripper_width = np.float32(data.position[0])
-        self.gripper_initialized = True
 
-    def camera1_callback(self, data):
+    def process_image(self, data, depth=False):
+        """Helper function to process RGB and depth images."""
         try:
-            image = self.bridge.imgmsg_to_cv2(data, "rgb8")
+            encoding = "16UC1" if depth else "rgb8"
+            image = self.bridge.imgmsg_to_cv2(data, encoding)
         except CvBridgeError as e:
             print(e)
-            return
-        
+            return None
+
         crop_resolution = (min(image.shape[:2]), min(image.shape[:2]))
-        
         if image.shape[:2] != crop_resolution:
             center = image.shape
-            x = center[1]/2 - crop_resolution[1]/2
-            y = center[0]/2 - crop_resolution[0]/2
-            image = image[int(y):int(y+crop_resolution[0]), int(x):int(x+crop_resolution[1])]
+            x = center[1] / 2 - crop_resolution[1] / 2
+            y = center[0] / 2 - crop_resolution[0] / 2
+            image = image[int(y):int(y + crop_resolution[0]), int(x):int(x + crop_resolution[1])]
 
         if image.shape[:2] != (self.height, self.width):
             image = cv2.resize(
@@ -219,89 +207,34 @@ class ReachIKDeltaRealEnv(gym.Env):
                 dsize=(self.width, self.height),
                 interpolation=cv2.INTER_CUBIC,
             )
-        self.image1 = image
-        self.image1_initialized = True
+        return image
 
-    def camera1_depth_callback(self, data):
-        try:
-            image = self.bridge.imgmsg_to_cv2(data, "16UC1")
-        except CvBridgeError as e:
-            print(e)
-            return
-        
-        crop_resolution = (min(image.shape), min(image.shape))
-        
-        if image.shape[:2] != crop_resolution:
-            center = image.shape
-            x = center[1]/2 - crop_resolution[1]/2
-            y = center[0]/2 - crop_resolution[0]/2
-            image = image[int(y):int(y+crop_resolution[0]), int(x):int(x+crop_resolution[1])]
+    def wrist1_callback(self, data):
+        self.wrist1 = self.process_image(data)
 
-        if image.shape[:2] != (self.height, self.width):
-            image = cv2.resize(
-                image,
-                dsize=(self.width, self.height),
-                interpolation=cv2.INTER_CUBIC,
-            )
-        self.depth1 = image
-        self.depth1_initialized = True
+    def wrist1_depth_callback(self, data):
+        self.wrist1_depth = self.process_image(data, depth=True)
 
-    def camera2_callback(self, data):
-        try:
-            image = self.bridge.imgmsg_to_cv2(data, "rgb8")
-        except CvBridgeError as e:
-            print(e)
-            return
-        
-        crop_resolution = (min(image.shape[:2]), min(image.shape[:2]))
-        
-        if image.shape[:2] != crop_resolution:
-            center = image.shape
-            x = center[1]/2 - crop_resolution[1]/2
-            y = center[0]/2 - crop_resolution[0]/2
-            image = image[int(y):int(y+crop_resolution[0]), int(x):int(x+crop_resolution[1])]
+    def wrist2_callback(self, data):
+        self.wrist2 = self.process_image(data)
 
-        if image.shape[:2] != (self.height, self.width):
-            image = cv2.resize(
-                image,
-                dsize=(self.width, self.height),
-                interpolation=cv2.INTER_CUBIC,
-            )
-        self.image2 = image
-        self.image2_initialized = True
+    def wrist2_depth_callback(self, data):
+        self.wrist2_depth = self.process_image(data, depth=True)
 
-    def camera2_depth_callback(self, data):
-        try:
-            image = self.bridge.imgmsg_to_cv2(data, "16UC1")
-        except CvBridgeError as e:
-            print(e)
-            return
-                
-        crop_resolution = (min(image.shape), min(image.shape))
-        
-        if image.shape[:2] != crop_resolution:
-            center = image.shape
-            x = center[1]/2 - crop_resolution[1]/2
-            y = center[0]/2 - crop_resolution[0]/2
-            image = image[int(y):int(y+crop_resolution[0]), int(x):int(x+crop_resolution[1])]
+    def front_callback(self, data):
+        self.front = self.process_image(data)
 
-        if image.shape[:2] != (self.height, self.width):
-            image = cv2.resize(
-                image,
-                dsize=(self.width, self.height),
-                interpolation=cv2.INTER_CUBIC,
-            )
-        self.depth2 = image
-        self.depth2_initialized = True
+    def front_depth_callback(self, data):
+        self.front_depth = self.process_image(data, depth=True)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
         # Wait for fresh state
-        while not (self.state_initialized and self.gripper_initialized and 
-                   self.image1_initialized and self.image2_initialized and
-                   self.depth1_initialized and self.depth2_initialized):
+        while not self.are_attributes_initialized():
+            print()
             rclpy.spin_once(self.node, timeout_sec=0.01)
+
         
         # Reset robot to initial pose
         pose = Pose()
@@ -333,6 +266,8 @@ class ReachIKDeltaRealEnv(gym.Env):
             self.gripper_pub.publish(Float32(data=-1.0))
             rclpy.spin_once(self.node, timeout_sec=0.01)
             time.sleep(0.1)
+
+        time.sleep(1)
         
         self.prev_action = np.zeros(self.action_space.shape)
         self.last_step_time = time.time()
@@ -342,10 +277,10 @@ class ReachIKDeltaRealEnv(gym.Env):
         return self._get_obs(), {}
 
     def step(self, action):
-        if not (self.state_initialized and self.gripper_initialized and 
-                self.image1_initialized and self.image2_initialized and
-                self.depth1_initialized and self.depth2_initialized):
+        # Check if environment is initialized
+        if not self.are_attributes_initialized():
             raise RuntimeError("Environment not properly initialized")
+        
         # Seems to perform better than while loop comparing current state to previous state     
         for i in range(10):
             rclpy.spin_once(self.node, timeout_sec=0.01)
@@ -429,9 +364,7 @@ class ReachIKDeltaRealEnv(gym.Env):
 
     def _get_obs(self):
         # Wait for fresh state
-        while not (self.state_initialized and self.gripper_initialized and 
-                   self.image1_initialized and self.image2_initialized and
-                   self.depth1_initialized and self.depth2_initialized):
+        while not self.are_attributes_initialized():
             rclpy.spin_once(self.node, timeout_sec=0.01)
             
         obs = {"state": {}}
@@ -450,12 +383,10 @@ class ReachIKDeltaRealEnv(gym.Env):
         obs["state"]["panda/gripper_vec"] = self.gripper_vec
         
         if self.image_obs:
-            obs["images"] = {
-                "front": self.image1,
-                "front_depth": self.depth1,
-                "wrist": self.image2,
-                "wrist_depth": self.depth2,
-            }
+            obs["images"] = {camera: getattr(self, camera) for camera in self.cameras}
+            if self.depth:
+                obs["images"].update({f"{camera}_depth": getattr(self, f"{camera}_depth") for camera in self.cameras})
+
             
         return obs
 
@@ -476,8 +407,8 @@ class ReachIKDeltaRealEnv(gym.Env):
         rclpy.shutdown()
 
     def render(self):
-            if self.image_obs and self.image1_initialized and self.image2_initialized:
-                return [self.image1, self.image2]
+            if self.image_obs:
+                return [self.wrist1, self.wrist2]
             else:
                 return [np.zeros((self.height, self.width, 3), dtype=np.uint8), np.zeros((self.height, self.width, 3), dtype=np.uint8)]
 
