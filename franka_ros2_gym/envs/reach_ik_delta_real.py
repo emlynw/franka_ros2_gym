@@ -83,7 +83,7 @@ class ReachIKDeltaRealEnv(gym.Env):
 
         # Control parameters
         self._CARTESIAN_BOUNDS = np.array([
-            [0.28, -0.35, 0.02],
+            [0.28, -0.35, 0.015],
             [0.75, 0.35, 0.55]
         ], dtype=np.float32)
         self._ROTATION_BOUNDS = np.array([
@@ -232,7 +232,6 @@ class ReachIKDeltaRealEnv(gym.Env):
         
         # Wait for fresh state
         while not self.are_attributes_initialized():
-            print()
             rclpy.spin_once(self.node, timeout_sec=0.01)
 
         
@@ -408,7 +407,9 @@ class ReachIKDeltaRealEnv(gym.Env):
 
     def render(self):
             if self.image_obs:
-                return [self.wrist1, self.wrist2]
+                if self.are_attributes_initialized():
+                    return [getattr(self, camera) for camera in self.cameras]
+
             else:
                 return [np.zeros((self.height, self.width, 3), dtype=np.uint8), np.zeros((self.height, self.width, 3), dtype=np.uint8)]
 
