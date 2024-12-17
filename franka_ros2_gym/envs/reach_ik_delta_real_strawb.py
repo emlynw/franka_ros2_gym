@@ -352,11 +352,13 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
                 self.gripper_blocked = False
             else:
                 if -1 <= grasp <= 0:
+                    print(f"grasp: {grasp}")
                     self.gripper_pub.publish(Float32(data=float(grasp)))
                     self.prev_grasp_time = time.time()
                     self.prev_grasp = grasp
                     self.gripper_vec = self.gripper_dict["moving"]
                 elif 0 < grasp <= 1:
+                    print(f"grasp: {grasp}")
                     self.gripper_pub.publish(Float32(data=float(1.0)))
                     self.prev_grasp_time = time.time()
                     self.prev_grasp = grasp
