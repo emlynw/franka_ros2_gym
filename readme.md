@@ -16,9 +16,9 @@ On the Franka PC:
 Run realsense cameras: 
 ros2 launch realsense2_camera rs_launch.py serial_no:=_048122070681 camera_namespace:=/ camera_name:=front align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
 
-ros2 launch realsense2_camera rs_launch.py serial_no:=_801212071197 camera_namespace:=/ camera_name:=wrist2 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
+ros2 launch realsense2_camera rs_launch.py serial_no:=_801212071197 camera_namespace:=/ camera_name:=wrist1 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
 
-ros2 launch realsense2_camera rs_launch.py serial_no:=_752112070781 camera_namespace:=/ camera_name:=wrist1 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
+ros2 launch realsense2_camera rs_launch.py serial_no:=_752112070781 camera_namespace:=/ camera_name:=wrist2 align_depth.enable:=true rgb_camera.color_profile:=640x480x30 depth_module.depth_profile:=640x480x30
 
 
 ### Simulation Environment

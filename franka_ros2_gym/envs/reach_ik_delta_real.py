@@ -287,20 +287,26 @@ class ReachIKDeltaRealEnv(gym.Env):
         # clip, parse and scale actions
         action = np.clip(action, self.action_space.low, self.action_space.high)
         if self.ee_dof == 3:
-            x, y, z, grasp = action
+            z, y, x, grasp = action
             roll, pitch, yaw = 0, 0, 0
         elif self.ee_dof == 4:
-            x, y, z, yaw, grasp = action
+            z, y, x, yaw, grasp = action
             roll, pitch = 0, 0
+        elif self.ee_dof == 6:
+            z, y, x, roll, pitch, yaw, grasp = action
+
         dpos = np.array([x, y, z]) * self.pos_scale
         drot = np.array([roll, pitch, yaw]) * self.rot_scale
+
+        current_rotation = Rotation.from_matrix(self.rot_mat)
+        dpos_world = current_rotation.apply(dpos)
         
         # Create pose message
         pose = Pose()
         # Apply position change
-        pose.position.x = self.x + float(dpos[0])
-        pose.position.y = self.y + float(dpos[1])
-        pose.position.z = self.z + float(dpos[2])
+        pose.position.x = self.x + float(dpos_world[0])
+        pose.position.y = self.y + float(dpos_world[1])
+        pose.position.z = self.z + float(dpos_world[2])
         # Clip position to bounds
         pose.position.x = np.clip(pose.position.x, self._CARTESIAN_BOUNDS[0, 0], self._CARTESIAN_BOUNDS[1, 0])
         pose.position.y = np.clip(pose.position.y, self._CARTESIAN_BOUNDS[0, 1], self._CARTESIAN_BOUNDS[1, 1])
