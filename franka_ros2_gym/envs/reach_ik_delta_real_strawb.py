@@ -31,8 +31,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         ee_dof=6,  # 3 for position only, 4 for position+yaw
         width=480,
         height=480,
-        pos_scale=0.1,
-        rot_scale=0.1,
+        pos_scale=0.2,
+        rot_scale=0.2,
         control_dt=0.1,
         cameras=["wrist1", "wrist2", "front"],
         depth = False,
