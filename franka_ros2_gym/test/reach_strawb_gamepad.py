@@ -36,7 +36,7 @@ def main():
 
     max_speed = 0.3  # Maximum speed in any direction
     max_z_speed = 0.1  # Maximum speed in the z direction
-    rot_speed = 0.8  # Maximum rotational speed
+    rot_speed = 1.0  # Maximum rotational speed
     # Dead zone threshold
     DEAD_ZONE = 0.15 # Adjust as needed
     i=0
@@ -45,7 +45,6 @@ def main():
         terminated = False
         truncated = False
         obs, info = env.reset()
-        print(obs)
         i=0
 
         while not terminated and not truncated:
