@@ -11,11 +11,12 @@ from franka_msgs.msg import FrankaState
 from sensor_msgs.msg import Image, JointState
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge, CvBridgeError
+from controller_manager_msgs.srv import SwitchController
 
 import numpy as np
 import cv2
 from collections import deque
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 import time
 import threading
 
@@ -50,6 +51,14 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.control_dt = control_dt
         self.cameras = cameras
         self.depth = depth
+        # Control parameters
+        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.35, 0.25], [0.8, 0.35, 1.0]], dtype=np.float32)
+        self._ROTATION_BOUNDS = np.array([[-np.pi/2, -np.pi/2, -np.pi/2],[np.pi/2, np.pi/2, np.pi/2]], dtype=np.float32)
+
+        # Initial poses
+        self.initial_position = np.array([0.15, 0.0, 0.8], dtype=np.float32)
+        self.initial_orientation = [0.725, 0.0, 0.688, 0.0]
+        self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
         # Action and observation spaces
         self.action_space = Box(
@@ -60,8 +69,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         
         state_space = Dict({
             "panda/tcp_pos": Box(
-                np.array([0.28, -0.35, 0.25]), 
-                np.array([0.8, 0.35, 0.8]), 
+                self._CARTESIAN_BOUNDS[0], 
+                self._CARTESIAN_BOUNDS[1], 
                 shape=(3,), 
                 dtype=np.float32
             ),
@@ -82,15 +91,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
                     self.observation_space["images"][f"{camera}_depth"] = Box(
                         0, 65535, shape=(self.height, self.width), dtype=np.uint16
                     )
-
-        # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.28, -0.35, 0.25], [0.8, 0.35, 0.8]], dtype=np.float32)
-        self._ROTATION_BOUNDS = np.array([[-np.pi/4, -np.pi/2, -np.pi/2],[np.pi/4, np.pi/2, np.pi/2]], dtype=np.float32)
         
-        # Initial poses
-        self.initial_position = np.array([0.4, 0.0, 0.7], dtype=np.float32)
-        self.initial_orientation = [0.725, 0.0, 0.688, 0.0]
-        self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
         # ROS setup
         self.required_attributes = ["rot_mat", "x", "y", "z", "gripper_width"] + [
@@ -103,19 +104,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         for attr in self.required_attributes:
             setattr(self, attr, None)
         
-        # Gripper state tracking
         self.prev_grasp_time = 0.0
         self.prev_grasp = -1.0
-        # self.gripper_dict = {
-        #     "open": np.array([1, 0, 0, 0], dtype=np.float32),
-        #     "closed": np.array([0, 1, 0, 0], dtype=np.float32),
-        #     "opening": np.array([0, 0, 1, 0], dtype=np.float32),
-        #     "closing": np.array([0, 0, 0, 1], dtype=np.float32),
-        # }
-        # self.gripper_dict = {
-        #     "moving": np.array([1, 0], dtype=np.float32),
-        #     "grasping": np.array([0, 1], dtype=np.float32),
-        # }
         self.gripper_dict = {
             "stopped": np.array([1, 0, 0], dtype=np.float32),
             "opening": np.array([0, 1, 0], dtype=np.float32),
@@ -254,38 +244,123 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Wait for fresh state
         while not self.are_attributes_initialized():
             rclpy.spin_once(self.node, timeout_sec=0.01)
+        
+        # # Step 1: Deactivate the current controller
+        # switch_controller_client = self.node.create_client(SwitchController, '/controller_manager/switch_controller')
+        # if not switch_controller_client.wait_for_service(timeout_sec=5.0):
+        #     raise RuntimeError("Service /controller_manager/switch_controller not available")
+        
+        # # Determine the active controller (initialize if not set)
+        # if not hasattr(self, "active_controller"):
+        #     self.active_controller = "cartesian_impedance_controller"
+        
+        # current_controller = self.active_controller
+
+        # # Request to deactivate current controller and activate the move_to_start_controller
+        # switch_request = SwitchController.Request()
+        # print(f"deactivating cartesian_impedance_controller")
+        # switch_request.deactivate_controllers = [current_controller]
+        # time.sleep(3)
+        # print("activating move_to_start_controller")
+        # switch_request.activate_controllers = ["move_to_start_controller"]
+        # time.sleep(3)
+        # switch_request.strictness = SwitchController.Request.STRICT
+        
+        # future = switch_controller_client.call_async(switch_request)
+        # rclpy.spin_until_future_complete(self.node, future)
+
+        # if future.result() is None or not future.result().ok:
+        #     raise RuntimeError("Failed to switch controllers to move_to_start_controller")
+        # else:
+        #     # Update the active controller
+        #     self.active_controller = "move_to_start_controller"
+        
+        # # Step 2: Wait for the move_to_start_controller to complete
+        # time.sleep(10)  # Adjust based on your controller's behavior
+        
+        # # Step 3: Switch back to the previous controller
+        # switch_request = SwitchController.Request()
+        # print("deactivating move_to_start_controller")
+        # switch_request.deactivate_controllers = ["move_to_start_controller"]
+        # time.sleep(3)
+        # print("activating cartesian_impedance_controller")
+        # switch_request.activate_controllers = [current_controller]
+        # time.sleep(3)
+        # switch_request.strictness = SwitchController.Request.STRICT
+        
+        # future = switch_controller_client.call_async(switch_request)
+        # rclpy.spin_until_future_complete(self.node, future)
+
+        # if future.result() is None or not future.result().ok:
+        #     raise RuntimeError(f"Failed to switch back to {current_controller}")
+        # else:
+        #     # Restore the previous controller as active
+        #     self.active_controller = current_controller
 
         
         # Reset robot to initial pose
-        pose = Pose()
-        pose.position.x = float(self.initial_position[0])
-        pose.position.y = float(self.initial_position[1])
-        pose.position.z = float(self.initial_position[2])
-        pose.orientation.x = float(self.initial_orientation[0])
-        pose.orientation.y = float(self.initial_orientation[1])
-        pose.orientation.z = float(self.initial_orientation[2])
-        pose.orientation.w = float(self.initial_orientation[3])
+        start_pos = np.array([self.x, self.y, self.z])
+        start_quat = Rotation.from_matrix(self.rot_mat).as_quat()
+        target_pos = self.initial_position
+        target_quat = self.initial_orientation
 
-        self.goal_pose_pub.publish(pose)
+        start_rot = Rotation.from_quat(start_quat)
+        target_rot = Rotation.from_quat(target_quat)
+
+        # Create Slerp interpolator
+        slerp = Slerp([0, 1], Rotation.concatenate([start_rot, target_rot]))
+
+        # Interpolation parameters
+        reset_duration = 3.0  # Total time for smooth interpolation
+        control_dt = 0.1  # Time between intermediate poses
+        num_steps = int(reset_duration / control_dt)
+        
+        # Publish gripper command once
         self.gripper_pub.publish(Float32(data=-1.0))
 
-        time.sleep(5)
-        
-        # Determine if current pose is close to initial pose
-        current_pos = np.array([self.x, self.y, self.z])
-        current_orientation = Rotation.from_matrix(self.rot_mat).as_quat()
-        pos_diff = np.linalg.norm(current_pos - self.initial_position)
-        rot_diff = np.abs(np.dot(current_orientation, self.initial_orientation))
-        # Loop until robot is near initial pose
-        while (pos_diff > 0.01) or (rot_diff < 0.99):
-            current_pos = np.array([self.x, self.y, self.z])
-            current_orientation = Rotation.from_matrix(self.rot_mat).as_quat()
-            pos_diff = np.linalg.norm(current_pos - self.initial_position)
-            rot_diff = np.abs(np.dot(current_orientation, self.initial_orientation))
+        # Smooth interpolation trajectory
+        for step in range(num_steps):
+            alpha = (step + 1) / num_steps
+            
+            # Linear position interpolation
+            interp_pos = (1 - alpha) * start_pos + alpha * target_pos
+            
+            # Spherical rotation interpolation
+            interp_rot = slerp(alpha)
+            interp_quat = interp_rot.as_quat()
+
+            # Create and publish intermediate pose
+            pose = Pose()
+            pose.position.x = float(interp_pos[0])
+            pose.position.y = float(interp_pos[1])
+            pose.position.z = float(interp_pos[2])
+            pose.orientation.x = float(interp_quat[0])
+            pose.orientation.y = float(interp_quat[1])
+            pose.orientation.z = float(interp_quat[2])
+            pose.orientation.w = float(interp_quat[3])
+            
             self.goal_pose_pub.publish(pose)
-            self.gripper_pub.publish(Float32(data=-1.0))
+            
+            # Maintain control rate and process updates
+            time.sleep(control_dt)
             rclpy.spin_once(self.node, timeout_sec=0.01)
+
+        # Final verification loop
+        start_time = time.time()
+        while time.time() - start_time < 5.0:  # Max 5s verification
+            current_pos = np.array([self.x, self.y, self.z])
+            current_quat = Rotation.from_matrix(self.rot_mat).as_quat()
+            
+            pos_diff = np.linalg.norm(current_pos - target_pos)
+            rot_diff = np.abs(np.dot(current_quat, target_quat))
+            
+            if pos_diff < 0.01 and rot_diff > 0.99:
+                break
+                
+            # Continue publishing final target pose
+            self.goal_pose_pub.publish(pose)
             time.sleep(0.1)
+            rclpy.spin_once(self.node, timeout_sec=0.01)
 
         time.sleep(1)
         

@@ -17,7 +17,7 @@ def apply_dead_zone(value, DEAD_ZONE=0.15):
 
 def main():
     render_mode = "rgb_array"
-    env = gym.make("franka_ros2_gym/ReachIKDeltaRealStrawbEnv", render_mode=render_mode, cameras=['wrist1', 'wrist2'], randomize_domain=False, ee_dof=6)
+    env = gym.make("franka_ros2_gym/ReachIKDeltaRealStrawbEnv", render_mode=render_mode, pos_scale = 0.2, rot_scale=1.0, cameras=['wrist1', 'wrist2'], randomize_domain=False, ee_dof=6)
     env = TimeLimit(env, max_episode_steps=1000)
     resize_resolution = (480, 480)
     waitkey = 10
@@ -34,8 +34,8 @@ def main():
 
     print(f"Using controller: {joystick.get_name()}")
 
-    max_speed = 0.3  # Maximum speed in any direction
-    max_z_speed = 0.1  # Maximum speed in the z direction
+    max_speed = 1.0  # Maximum speed in any direction
+    max_z_speed = 1.0  # Maximum speed in the z direction
     rot_speed = 1.0  # Maximum rotational speed
     # Dead zone threshold
     DEAD_ZONE = 0.15 # Adjust as needed
