@@ -37,6 +37,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         control_dt=0.1,
         cameras=["wrist1", "wrist2", "front"],
         depth = False,
+        randomize_domain=False,
         **kwargs
     ):
         super().__init__()
@@ -51,9 +52,12 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.control_dt = control_dt
         self.cameras = cameras
         self.depth = depth
+        self.randomize_domain = randomize_domain
         # Control parameters
         self._CARTESIAN_BOUNDS = np.array([[0.05, -0.35, 0.25], [0.8, 0.35, 1.0]], dtype=np.float32)
         self._ROTATION_BOUNDS = np.array([[-np.pi/2, -np.pi/2, -np.pi/2],[np.pi/2, np.pi/2, np.pi/2]], dtype=np.float32)
+        self.ee_noise_low = [0.0, -0.15, 0.0]
+        self.ee_noise_high = [0.1, 0.15, 0.1]
 
         # Initial poses
         self.initial_position = np.array([0.15, 0.0, 0.8], dtype=np.float32)
@@ -204,8 +208,11 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         except CvBridgeError as e:
             print(e)
             return None
-
-        crop_resolution = (min(image.shape[:2]), min(image.shape[:2]))
+        
+        if depth:
+            crop_resolution = (min(image.shape), min(image.shape))
+        else:
+            crop_resolution = (min(image.shape[:2]), min(image.shape[:2]))
         if image.shape[:2] != crop_resolution:
             center = image.shape
             x = center[1] / 2 - crop_resolution[1] / 2
@@ -244,64 +251,70 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Wait for fresh state
         while not self.are_attributes_initialized():
             rclpy.spin_once(self.node, timeout_sec=0.01)
-        
-        # # Step 1: Deactivate the current controller
-        # switch_controller_client = self.node.create_client(SwitchController, '/controller_manager/switch_controller')
-        # if not switch_controller_client.wait_for_service(timeout_sec=5.0):
-        #     raise RuntimeError("Service /controller_manager/switch_controller not available")
-        
-        # # Determine the active controller (initialize if not set)
-        # if not hasattr(self, "active_controller"):
-        #     self.active_controller = "cartesian_impedance_controller"
-        
-        # current_controller = self.active_controller
 
-        # # Request to deactivate current controller and activate the move_to_start_controller
-        # switch_request = SwitchController.Request()
-        # print(f"deactivating cartesian_impedance_controller")
-        # switch_request.deactivate_controllers = [current_controller]
-        # time.sleep(3)
-        # print("activating move_to_start_controller")
-        # switch_request.activate_controllers = ["move_to_start_controller"]
-        # time.sleep(3)
-        # switch_request.strictness = SwitchController.Request.STRICT
+        for i in range(5):
+            self.gripper_pub.publish(Float32(data=0.02))
         
-        # future = switch_controller_client.call_async(switch_request)
-        # rclpy.spin_until_future_complete(self.node, future)
+        # Step 1: Deactivate the current controller
+        switch_controller_client = self.node.create_client(SwitchController, '/controller_manager/switch_controller')
+        if not switch_controller_client.wait_for_service(timeout_sec=5.0):
+            raise RuntimeError("Service /controller_manager/switch_controller not available")
+        
+        # Determine the active controller (initialize if not set)
+        if not hasattr(self, "active_controller"):
+            self.active_controller = "cartesian_impedance_controller"
+        
+        current_controller = self.active_controller
 
-        # if future.result() is None or not future.result().ok:
-        #     raise RuntimeError("Failed to switch controllers to move_to_start_controller")
-        # else:
-        #     # Update the active controller
-        #     self.active_controller = "move_to_start_controller"
+        # Request to deactivate current controller and activate the move_to_start_controller
+        switch_request = SwitchController.Request()
+        print(f"deactivating cartesian_impedance_controller")
+        switch_request.deactivate_controllers = [current_controller]
+        time.sleep(3)
+        print("activating move_to_start_controller")
+        switch_request.activate_controllers = ["move_to_start_controller"]
+        time.sleep(3)
+        switch_request.strictness = SwitchController.Request.STRICT
         
-        # # Step 2: Wait for the move_to_start_controller to complete
-        # time.sleep(10)  # Adjust based on your controller's behavior
-        
-        # # Step 3: Switch back to the previous controller
-        # switch_request = SwitchController.Request()
-        # print("deactivating move_to_start_controller")
-        # switch_request.deactivate_controllers = ["move_to_start_controller"]
-        # time.sleep(3)
-        # print("activating cartesian_impedance_controller")
-        # switch_request.activate_controllers = [current_controller]
-        # time.sleep(3)
-        # switch_request.strictness = SwitchController.Request.STRICT
-        
-        # future = switch_controller_client.call_async(switch_request)
-        # rclpy.spin_until_future_complete(self.node, future)
+        future = switch_controller_client.call_async(switch_request)
+        rclpy.spin_until_future_complete(self.node, future)
 
-        # if future.result() is None or not future.result().ok:
-        #     raise RuntimeError(f"Failed to switch back to {current_controller}")
-        # else:
-        #     # Restore the previous controller as active
-        #     self.active_controller = current_controller
+        if future.result() is None or not future.result().ok:
+            raise RuntimeError("Failed to switch controllers to move_to_start_controller")
+        else:
+            # Update the active controller
+            self.active_controller = "move_to_start_controller"
+        
+        # Step 2: Wait for the move_to_start_controller to complete
+        time.sleep(6)  # Adjust based on your controller's behavior
 
+        
+        # Step 3: Switch back to the previous controller
+        switch_request = SwitchController.Request()
+        print("deactivating move_to_start_controller")
+        switch_request.deactivate_controllers = ["move_to_start_controller"]
+        time.sleep(3)
+        print("activating cartesian_impedance_controller")
+        switch_request.activate_controllers = [current_controller]
+        time.sleep(3)
+        switch_request.strictness = SwitchController.Request.STRICT
+        
+        future = switch_controller_client.call_async(switch_request)
+        rclpy.spin_until_future_complete(self.node, future)
+
+        if future.result() is None or not future.result().ok:
+            raise RuntimeError(f"Failed to switch back to {current_controller}")
+        else:
+            # Restore the previous controller as active
+            self.active_controller = current_controller
         
         # Reset robot to initial pose
         start_pos = np.array([self.x, self.y, self.z])
         start_quat = Rotation.from_matrix(self.rot_mat).as_quat()
-        target_pos = self.initial_position
+        if self.randomize_domain:
+            target_pos = self.initial_position + np.random.uniform(low=self.ee_noise_low, high=self.ee_noise_high, size=3)
+        else:
+            target_pos = self.initial_position
         target_quat = self.initial_orientation
 
         start_rot = Rotation.from_quat(start_quat)
@@ -314,9 +327,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         reset_duration = 3.0  # Total time for smooth interpolation
         control_dt = 0.1  # Time between intermediate poses
         num_steps = int(reset_duration / control_dt)
-        
-        # Publish gripper command once
-        self.gripper_pub.publish(Float32(data=-1.0))
 
         # Smooth interpolation trajectory
         for step in range(num_steps):
@@ -493,11 +503,11 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         action_diff = np.linalg.norm(action[:-1] - self.prev_action[:-1]) / np.sqrt(len(action)-1)
         smooth_reward = 1 - np.tanh(5 * action_diff)
         
-        reward = smooth_reward
-        
         info = {
             'smooth_reward': smooth_reward
         }
+
+        reward = 0
         
         return reward, info
 
