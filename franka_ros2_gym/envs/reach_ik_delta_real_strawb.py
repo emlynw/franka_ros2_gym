@@ -270,10 +270,9 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         switch_request = SwitchController.Request()
         print(f"deactivating cartesian_impedance_controller")
         switch_request.deactivate_controllers = [current_controller]
-        time.sleep(3)
+        time.sleep(1)
         print("activating move_to_start_controller")
         switch_request.activate_controllers = ["move_to_start_controller"]
-        time.sleep(3)
         switch_request.strictness = SwitchController.Request.STRICT
         
         future = switch_controller_client.call_async(switch_request)
@@ -286,17 +285,16 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
             self.active_controller = "move_to_start_controller"
         
         # Step 2: Wait for the move_to_start_controller to complete
-        time.sleep(6)  # Adjust based on your controller's behavior
+        time.sleep(3)  # Adjust based on your controller's behavior
 
         
         # Step 3: Switch back to the previous controller
         switch_request = SwitchController.Request()
         print("deactivating move_to_start_controller")
         switch_request.deactivate_controllers = ["move_to_start_controller"]
-        time.sleep(3)
+        time.sleep(1)
         print("activating cartesian_impedance_controller")
         switch_request.activate_controllers = [current_controller]
-        time.sleep(3)
         switch_request.strictness = SwitchController.Request.STRICT
         
         future = switch_controller_client.call_async(switch_request)
