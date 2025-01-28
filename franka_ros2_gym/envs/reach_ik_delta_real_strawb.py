@@ -482,11 +482,17 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # State observations
         obs["state"]["panda/tcp_pos"] = np.array([self.x, self.y, self.z], dtype=np.float32)
         quat = Rotation.from_matrix(self.rot_mat).as_quat().astype(np.float32)
-  
         obs["state"]["panda/tcp_orientation"] = quat
         obs["state"]["panda/tcp_vel"] = self.vel
         obs["state"]["panda/gripper_pos"] = (25*2*np.array([self.gripper_width], dtype=np.float32)-1)
-        obs["state"]["panda/gripper_vec"] = np.concatenate([self.gripper_vec, [self.grasp], [int(self.gripper_blocked)]]).astype(np.float32)
+        obs["state"]["panda/gripper_vec"] = np.concatenate([self.gripper_vec, [int(self.gripper_blocked)]]).astype(np.float32)
+
+        # euler = Rotation.from_matrix(self.rot_mat).as_euler('xyz').astype(np.float32)
+        # print(f"tcp_pos: {obs['state']['panda/tcp_pos']}")
+        # print(f"tcp_euler: {euler}")
+        # print(f"tcp_vel : {obs['state']['panda/tcp_vel']}")
+        # print(f"gripper_pos : {obs['state']['panda/gripper_pos']}")
+        # print(f"gripper_vec : {obs['state']['panda/gripper_vec']}")
         
         if self.image_obs:
             obs["images"] = {camera: getattr(self, camera) for camera in self.cameras}
