@@ -54,8 +54,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.depth = depth
         self.randomize_domain = randomize_domain
         # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.35, 0.25], [0.8, 0.35, 1.0]], dtype=np.float32)
-        self._ROTATION_BOUNDS = np.array([[-np.pi/2, -np.pi/2, -np.pi/2],[np.pi/2, np.pi/2, np.pi/2]], dtype=np.float32)
+        self._CARTESIAN_BOUNDS = np.array([[0.01, -0.3, 0.7], [0.6, 0.3, 0.95]], dtype=np.float32)
+        self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/6, -np.pi/6],[np.pi/3, np.pi/6, np.pi/6]], dtype=np.float32)
         self.ee_noise_low = [0.0, -0.15, 0.0]
         self.ee_noise_high = [0.1, 0.15, 0.1]
 
@@ -311,6 +311,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         start_quat = Rotation.from_matrix(self.rot_mat).as_quat()
         if self.randomize_domain:
             target_pos = self.initial_position + np.random.uniform(low=self.ee_noise_low, high=self.ee_noise_high, size=3)
+            target_pos = np.clip(target_pos, self._CARTESIAN_BOUNDS[0], self._CARTESIAN_BOUNDS[1])
         else:
             target_pos = self.initial_position
         target_quat = self.initial_orientation
@@ -417,11 +418,11 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
 
         # Apply rotation change
         current_rotation = Rotation.from_matrix(self.rot_mat)
-        # Sim quat is in wxyz, need to match this
         action_rotation = Rotation.from_euler('xyz', drot)
         new_rotation = action_rotation * current_rotation
         new_relative_rotation = self.initial_rotation.inv() * new_rotation
         relative_euler = new_relative_rotation.as_euler('xyz')
+        print(F"relative euler: {relative_euler}")
         clipped_euler = np.clip(relative_euler, self._ROTATION_BOUNDS[0], self._ROTATION_BOUNDS[1])
         clipped_rotation = Rotation.from_euler('xyz', clipped_euler)
         final_rotation = self.initial_rotation * clipped_rotation
