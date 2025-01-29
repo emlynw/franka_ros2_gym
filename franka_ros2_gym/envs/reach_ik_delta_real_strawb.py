@@ -252,7 +252,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         while not self.are_attributes_initialized():
             rclpy.spin_once(self.node, timeout_sec=0.01)
 
-        for i in range(5):
+        for i in range(20):
             self.gripper_pub.publish(Float32(data=0.02))
         
         # Step 1: Deactivate the current controller
@@ -422,7 +422,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         new_rotation = action_rotation * current_rotation
         new_relative_rotation = self.initial_rotation.inv() * new_rotation
         relative_euler = new_relative_rotation.as_euler('xyz')
-        print(F"relative euler: {relative_euler}")
         clipped_euler = np.clip(relative_euler, self._ROTATION_BOUNDS[0], self._ROTATION_BOUNDS[1])
         clipped_rotation = Rotation.from_euler('xyz', clipped_euler)
         final_rotation = self.initial_rotation * clipped_rotation
