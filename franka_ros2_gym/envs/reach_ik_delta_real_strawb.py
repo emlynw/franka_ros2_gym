@@ -251,9 +251,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Wait for fresh state
         while not self.are_attributes_initialized():
             rclpy.spin_once(self.node, timeout_sec=0.01)
-
-        for i in range(20):
-            self.gripper_pub.publish(Float32(data=0.02))
         
         # Step 1: Deactivate the current controller
         switch_controller_client = self.node.create_client(SwitchController, '/controller_manager/switch_controller')
@@ -268,10 +265,9 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
 
         # Request to deactivate current controller and activate the move_to_start_controller
         switch_request = SwitchController.Request()
-        print(f"deactivating cartesian_impedance_controller")
+        print(f"Resetting Joint Positions")
         switch_request.deactivate_controllers = [current_controller]
         time.sleep(1)
-        print("activating move_to_start_controller")
         switch_request.activate_controllers = ["move_to_start_controller"]
         switch_request.strictness = SwitchController.Request.STRICT
         
@@ -287,13 +283,15 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Step 2: Wait for the move_to_start_controller to complete
         time.sleep(3)  # Adjust based on your controller's behavior
 
+        # Open gripper
+        for i in range(20):
+            self.gripper_pub.publish(Float32(data=0.02))
+
         
         # Step 3: Switch back to the previous controller
         switch_request = SwitchController.Request()
-        print("deactivating move_to_start_controller")
         switch_request.deactivate_controllers = ["move_to_start_controller"]
         time.sleep(1)
-        print("activating cartesian_impedance_controller")
         switch_request.activate_controllers = [current_controller]
         switch_request.strictness = SwitchController.Request.STRICT
         
