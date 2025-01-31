@@ -54,13 +54,13 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.depth = depth
         self.randomize_domain = randomize_domain
         # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.01, -0.3, 0.7], [0.6, 0.3, 0.95]], dtype=np.float32)
-        self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/6, -np.pi/6],[np.pi/3, np.pi/6, np.pi/6]], dtype=np.float32)
-        self.ee_noise_low = [0.0, -0.15, 0.0]
-        self.ee_noise_high = [0.1, 0.15, 0.1]
+        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.25, 0.7], [0.55, 0.25, 0.95]], dtype=np.float32)
+        self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/10, -np.pi/10],[np.pi/3, np.pi/10, np.pi/10]], dtype=np.float32)
+        self.ee_noise_low = [-0.04, -0.05, 0.0]
+        self.ee_noise_high = [0.04, 0.05, 0.1]
 
         # Initial poses
-        self.initial_position = np.array([0.15, 0.0, 0.8], dtype=np.float32)
+        self.initial_position = np.array([0.1, 0.0, 0.8], dtype=np.float32)
         self.initial_orientation = [0.725, 0.0, 0.688, 0.0]
         self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
@@ -463,8 +463,9 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Check for success/termination
         terminated = False
         truncated = False
-        if time.time() - self.last_step_time < self.control_dt:
-            time.sleep(self.control_dt - (time.time() - self.last_step_time))
+        control_step_time = time.time() - self.last_step_time
+        if control_step_time < self.control_dt:
+            time.sleep(self.control_dt - (control_step_time))
         self.last_step_time = time.time()
         rclpy.spin_once(self.node, timeout_sec=0.01)
         obs = self._get_obs()
