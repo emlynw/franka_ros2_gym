@@ -7,7 +7,7 @@ from rclpy.node import Node
 from rclpy import qos
 from geometry_msgs.msg import Pose
 from std_msgs.msg import Float32
-from franka_msgs.msg import FrankaState, FrankaModel
+from franka_msgs.msg import FrankaState
 from sensor_msgs.msg import Image, JointState
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge, CvBridgeError
@@ -19,7 +19,6 @@ from collections import deque
 from scipy.spatial.transform import Rotation, Slerp
 import time
 import threading
-from scipy.spatial.transform import Rotation as R
 
 class ReachIKDeltaRealStrawbEnv(gym.Env):
     metadata = {
@@ -54,9 +53,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.cameras = cameras
         self.depth = depth
         self.randomize_domain = randomize_domain
-        self.gripper_sleep = 0.6
         # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.2, 0.7], [0.55, 0.2, 0.95]], dtype=np.float32)
+        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.25, 0.7], [0.55, 0.25, 0.95]], dtype=np.float32)
         self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/10, -np.pi/10],[np.pi/3, np.pi/10, np.pi/10]], dtype=np.float32)
         self.ee_noise_low = [-0.04, -0.05, 0.0]
         self.ee_noise_high = [0.04, 0.05, 0.1]
@@ -74,15 +72,16 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         )
         
         state_space = Dict({
-            "tcp_pose": Box(
-                -np.inf, 
-                np.inf, 
-                shape=(7,), 
+            "panda/tcp_pos": Box(
+                self._CARTESIAN_BOUNDS[0], 
+                self._CARTESIAN_BOUNDS[1], 
+                shape=(3,), 
                 dtype=np.float32
             ),
-            "tcp_vel": Box(-np.inf, np.inf, shape=(6,), dtype=np.float32),
-            "gripper_pos": Box(-1, 1, shape=(1,), dtype=np.float32),
-            # "gripper_vec": Box(0.0, 1.0, shape=(4,), dtype=np.float32),
+            "panda/tcp_orientation": Box(-1, 1, shape=(4,), dtype=np.float32),
+            "panda/tcp_vel": Box(-np.inf, np.inf, shape=(3,), dtype=np.float32),
+            "panda/gripper_pos": Box(-1, 1, shape=(1,), dtype=np.float32),
+            "panda/gripper_vec": Box(0.0, 1.0, shape=(4,), dtype=np.float32),
         })
         
         self.observation_space = Dict({"state": state_space})
@@ -99,7 +98,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         
         
         # ROS setup
-        self.required_attributes = ["pos", "gripper_width"] + [
+        self.required_attributes = ["rot_mat", "x", "y", "z", "gripper_width"] + [
             camera for camera in self.cameras
         ] + [f"{camera}_depth" for camera in self.cameras if self.depth]
         for attr in self.required_attributes:
@@ -109,14 +108,14 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         for attr in self.required_attributes:
             setattr(self, attr, None)
         
-        self.prev_grasp_time = time.time()
+        self.prev_grasp_time = 0.0
         self.prev_grasp = -1.0
         self.gripper_dict = {
             "stopped": np.array([1, 0, 0], dtype=np.float32),
             "opening": np.array([0, 1, 0], dtype=np.float32),
             "closing": np.array([0, 0, 1], dtype=np.float32),
         }
-        # self.gripper_vec = self.gripper_dict["stopped"]
+        self.gripper_vec = self.gripper_dict["stopped"]
         self.grasp = -1.0
         self.gripper_blocked = False
         self.gripper_open_width = 0.015
@@ -184,21 +183,23 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         return all(getattr(self, attr) is not None for attr in self.required_attributes)
    
     def state_callback(self, data):
-        tmatrix = np.array(list(data.o_t_ee)).reshape(4, 4).T
-        r = R.from_matrix(tmatrix[:3, :3])
-        pose = np.concatenate([tmatrix[:3, -1], r.as_quat()])
-        self.pos = pose
-        self.dq = np.array(list(data.dq)).reshape((7,))
-        self.q = np.array(list(data.q)).reshape((7,))
-        self.force = np.array(list(data.k_f_ext_hat_k)[:3])
-        self.torque = np.array(list(data.k_f_ext_hat_k)[3:])   
-        
+        self.rot_mat = np.array([
+            [data.o_t_ee[0], data.o_t_ee[4], data.o_t_ee[8]],
+            [data.o_t_ee[1], data.o_t_ee[5], data.o_t_ee[9]],
+            [data.o_t_ee[2], data.o_t_ee[6], data.o_t_ee[10]]
+        ])
+        self.x = np.float32(data.o_t_ee[12])
+        self.y = np.float32(data.o_t_ee[13])
+        self.z = np.float32(data.o_t_ee[14])
+
     def vel_callback(self, data):
-        self.vel = np.array([np.float32(data.linear.x), np.float32(data.linear.y), np.float32(data.linear.z), 
-                             np.float32(data.angular.x), np.float32(data.angular.y), np.float32(data.angular.z)])
+        self.vel_x = np.float32(data.linear.x)
+        self.vel_y = np.float32(data.linear.y)
+        self.vel_z = np.float32(data.linear.z)
+        self.vel = np.array([self.vel_x, self.vel_y, self.vel_z])
 
     def gripper_callback(self, data):
-        self.gripper_width = np.float32(np.sum(data.position) / self.gripper_open_width)
+        self.gripper_width = np.float32(data.position[0])
 
     def process_image(self, data, depth=False):
         """Helper function to process RGB and depth images."""
@@ -286,7 +287,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Open gripper
         for i in range(20):
             self.gripper_pub.publish(Float32(data=self.gripper_open_width))
-        self.prev_grasp_time = time.time()
 
         
         # Step 3: Switch back to the previous controller
@@ -306,8 +306,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
             self.active_controller = current_controller
         
         # Reset robot to initial pose
-        start_pos = self.pos[0:3]
-        start_quat = self.pos[3:]
+        start_pos = np.array([self.x, self.y, self.z])
+        start_quat = Rotation.from_matrix(self.rot_mat).as_quat()
         if self.randomize_domain:
             target_pos = self.initial_position + np.random.uniform(low=self.ee_noise_low, high=self.ee_noise_high, size=3)
             target_pos = np.clip(target_pos, self._CARTESIAN_BOUNDS[0], self._CARTESIAN_BOUNDS[1])
@@ -356,8 +356,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Final verification loop
         start_time = time.time()
         while time.time() - start_time < 5.0:  # Max 5s verification
-            current_pos = self.pos[0:3]
-            current_quat = self.pos[3:]
+            current_pos = np.array([self.x, self.y, self.z])
+            current_quat = Rotation.from_matrix(self.rot_mat).as_quat()
             
             pos_diff = np.linalg.norm(current_pos - target_pos)
             rot_diff = np.abs(np.dot(current_quat, target_quat))
@@ -391,39 +391,41 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # clip, parse and scale actions
         action = np.clip(action, self.action_space.low, self.action_space.high)
         if self.ee_dof == 3:
-            z, y, x, grasp = action
+            x, y, z, grasp = action
             roll, pitch, yaw = 0, 0, 0
         elif self.ee_dof == 4:
-            z, y, x, yaw, grasp = action
+            x, y, z, yaw, grasp = action
             roll, pitch = 0, 0
         elif self.ee_dof == 6:
-            z, y, x, roll, pitch, yaw, grasp = action
+            x, y, z, roll, pitch, yaw, grasp = action
         dpos = np.array([x, y, z]) * self.pos_scale
         drot = np.array([roll, pitch, yaw]) * self.rot_scale
 
-        current_rotation = Rotation.from_quat(self.pos[3:])
+        current_rotation = Rotation.from_matrix(self.rot_mat)
         # dpos_world = [dpos[2], dpos[1], dpos]
         dpos_world = current_rotation.apply(dpos)        
         # Create pose message
         pose = Pose()
         # Apply position change
-        pose.position.x = self.pos[0] + float(dpos_world[0])
-        pose.position.y = self.pos[1] + float(dpos_world[1])
-        pose.position.z = self.pos[2] + float(dpos_world[2])
+        pose.position.x = self.x + float(dpos[0])
+        pose.position.y = self.y + float(dpos[1])
+        pose.position.z = self.z + float(dpos[2])
         # Clip position to bounds
         pose.position.x = np.clip(pose.position.x, self._CARTESIAN_BOUNDS[0, 0], self._CARTESIAN_BOUNDS[1, 0])
         pose.position.y = np.clip(pose.position.y, self._CARTESIAN_BOUNDS[0, 1], self._CARTESIAN_BOUNDS[1, 1])
         pose.position.z = np.clip(pose.position.z, self._CARTESIAN_BOUNDS[0, 2], self._CARTESIAN_BOUNDS[1, 2])
 
         # Apply rotation change
-        current_rotation = Rotation.from_quat(self.pos[3:])
+        current_rotation = Rotation.from_matrix(self.rot_mat)
         action_rotation = Rotation.from_euler('xyz', drot)
         new_rotation = action_rotation * current_rotation
+        print(f"new rotation: {new_rotation.as_quat()}")
         new_relative_rotation = self.initial_rotation.inv() * new_rotation
         relative_euler = new_relative_rotation.as_euler('xyz')
         clipped_euler = np.clip(relative_euler, self._ROTATION_BOUNDS[0], self._ROTATION_BOUNDS[1])
         clipped_rotation = Rotation.from_euler('xyz', clipped_euler)
         final_rotation = self.initial_rotation * clipped_rotation
+        print(f"clipped_rotation: {final_rotation.as_quat()}")
         final_quat = final_rotation.as_quat()
         pose.orientation.x = float(final_quat[0])
         pose.orientation.y = float(final_quat[1])
@@ -431,39 +433,28 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         pose.orientation.w = float(final_quat[3])
 
         # Handle grasping
-
-        if (grasp >= 0.5) and (self.gripper_width > 0.85) and (time.time() - self.prev_grasp_time > self.gripper_sleep):  # close gripper
-            width = 0.0
-            self.gripper_pub.publish(Float32(data=float(width)))
-            self.prev_grasp_time = time.time()
-            time.sleep(self.gripper_sleep)
-        elif (grasp <= -0.5) and (self.gripper_width < 0.85) and (time.time() - self.prev_grasp_time > self.gripper_sleep):  # open gripper
-            self.gripper_pub.publish(Float32(data=float(self.gripper_open_width)))
-            self.prev_grasp_time = time.time()
-            time.sleep(self.gripper_sleep)
-        
-        # if time.time() - self.prev_grasp_time < 0.5:
-        #     self.gripper_blocked = True
-        # else:
-        #     if grasp >= 0.5:
-        #         if self.prev_grasp >=0.5:
-        #             pass
-        #         else:
-        #             width = 0.0
-        #             self.gripper_pub.publish(Float32(data=float(width)))
-        #             self.prev_grasp_time = time.time()
-        #             self.prev_grasp = grasp
-        #             self.gripper_vec = self.gripper_dict["closing"]
-        #     elif grasp <= -0.5:
-        #         # width = np.clip(2*self.gripper_width + 0.005, 0.0, 0.076)
-        #         self.gripper_pub.publish(Float32(data=float(self.gripper_open_width)))
-        #         self.prev_grasp_time = time.time()
-        #         self.prev_grasp = grasp
-        #         self.gripper_vec = self.gripper_dict["opening"]
-        #     else:
-        #         self.gripper_blocked = False
-        #         self.prev_grasp = grasp
-        #         self.gripper_vec = self.gripper_dict["stopped"]
+        if time.time() - self.prev_grasp_time < 0.5:
+            self.gripper_blocked = True
+        else:
+            if grasp >= 0.5:
+                if self.prev_grasp >=0.5:
+                    pass
+                else:
+                    width = 0.0
+                    self.gripper_pub.publish(Float32(data=float(width)))
+                    self.prev_grasp_time = time.time()
+                    self.prev_grasp = grasp
+                    self.gripper_vec = self.gripper_dict["closing"]
+            elif grasp <= -0.5:
+                # width = np.clip(2*self.gripper_width + 0.005, 0.0, 0.076)
+                self.gripper_pub.publish(Float32(data=float(self.gripper_open_width)))
+                self.prev_grasp_time = time.time()
+                self.prev_grasp = grasp
+                self.gripper_vec = self.gripper_dict["opening"]
+            else:
+                self.gripper_blocked = False
+                self.prev_grasp = grasp
+                self.gripper_vec = self.gripper_dict["stopped"]
 
         self.goal_pose_pub.publish(pose)
                 
@@ -491,11 +482,20 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         obs = {"state": {}}
         
         # State observations
-        obs["state"]["tcp_pose"] = self.pos
-        obs["state"]["tcp_vel"] = self.vel
-        obs["state"]["gripper_pos"] = self.gripper_width
-        # obs["state"]["gripper_vec"] = np.concatenate([self.gripper_vec, [int(self.gripper_blocked)]]).astype(np.float32)
+        obs["state"]["panda/tcp_pos"] = np.array([self.x, self.y, self.z], dtype=np.float32)
+        quat = Rotation.from_matrix(self.rot_mat).as_quat().astype(np.float32)
+        obs["state"]["panda/tcp_orientation"] = quat
+        obs["state"]["panda/tcp_vel"] = self.vel
+        obs["state"]["panda/gripper_pos"] = (25*2*np.array([self.gripper_width], dtype=np.float32)-1)
+        obs["state"]["panda/gripper_vec"] = np.concatenate([self.gripper_vec, [int(self.gripper_blocked)]]).astype(np.float32)
 
+        # euler = Rotation.from_matrix(self.rot_mat).as_euler('xyz').astype(np.float32)
+        # print(f"tcp_pos: {obs['state']['panda/tcp_pos']}")
+        # print(f"tcp_euler: {euler}")
+        # print(f"tcp_vel : {obs['state']['panda/tcp_vel']}")
+        # print(f"gripper_pos : {obs['state']['panda/gripper_pos']}")
+        # print(f"gripper_vec : {obs['state']['panda/gripper_vec']}")
+        
         if self.image_obs:
             obs["images"] = {camera: getattr(self, camera) for camera in self.cameras}
             if self.depth:
