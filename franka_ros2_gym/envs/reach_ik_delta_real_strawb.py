@@ -33,10 +33,10 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         ee_dof=6,  # 3 for position only, 4 for position+yaw
         width=480,
         height=480,
-        pos_scale=0.2,
+        pos_scale=0.01,
         rot_scale=0.2,
-        control_dt=0.1,
-        cameras=["wrist1", "wrist2", "front"],
+        control_dt=0.05,
+        cameras=["wrist1", "wrist2"],
         depth = False,
         randomize_domain=False,
         **kwargs
@@ -281,7 +281,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
             self.active_controller = "move_to_start_controller"
         
         # Step 2: Wait for the move_to_start_controller to complete
-        time.sleep(3)  # Adjust based on your controller's behavior
+        time.sleep(2)  # Adjust based on your controller's behavior
 
         # Open gripper
         for i in range(20):
@@ -323,8 +323,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
 
         # Interpolation parameters
         reset_duration = 3.0  # Total time for smooth interpolation
-        control_dt = 0.1  # Time between intermediate poses
-        num_steps = int(reset_duration / control_dt)
+        num_steps = int(reset_duration / self.control_dt)
 
         # Smooth interpolation trajectory
         for step in range(num_steps):
@@ -350,7 +349,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
             self.goal_pose_pub.publish(pose)
             
             # Maintain control rate and process updates
-            time.sleep(control_dt)
+            time.sleep(self.control_dt)
             rclpy.spin_once(self.node, timeout_sec=0.01)
 
         # Final verification loop
@@ -493,7 +492,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # State observations
         obs["state"]["tcp_pose"] = self.pos
         obs["state"]["tcp_vel"] = self.vel
-        obs["state"]["gripper_pos"] = self.gripper_width
+        obs["state"]["gripper_pos"] = np.array([self.gripper_width])
         # obs["state"]["gripper_vec"] = np.concatenate([self.gripper_vec, [int(self.gripper_blocked)]]).astype(np.float32)
 
         if self.image_obs:
