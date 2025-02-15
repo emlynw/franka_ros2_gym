@@ -18,7 +18,6 @@ class GamepadExpert:
         self.joystick.init()
 
         # Default gears if none provided
-        # Feel free to change these values or their lengths
         if translation_speeds is None:
             translation_speeds = [0.05, 0.1, 0.2, 0.5, 0.75, 1.0]
         if rotation_speeds is None:
@@ -72,7 +71,7 @@ class GamepadExpert:
         """
         Poll the gamepad and construct a 6D action for the robot arm:
           [tx, ty, tz, rx, ry, rz]
-        Also returns (left_bumper_pressed, right_bumper_pressed).
+        Also returns ( (gripper opened), right_bumper_pressed).
         """
         # Update internal states for the D-pad gear system
         self.update_speeds_via_dpad()
@@ -115,13 +114,14 @@ class GamepadExpert:
                              pitch, 
                              yaw], dtype=np.float32)
 
-        # For gripper: left bumper (LB=4) or right bumper (RB=5).
-        # You could also use separate buttons, e.g. LB=4, RB=5
-        # Gripper control with A button (button 0) for toggling
-        left_bumper  = bool(self.joystick.get_button(2))
-        right_bumper = bool(self.joystick.get_button(0))
+        # Gripper control with A button (button 0) for closing, x button for opening
+        left  = bool(self.joystick.get_button(2))
+        right = bool(self.joystick.get_button(0))
 
-        return expert_a, (left_bumper, right_bumper)
+        truncated = bool(self.joystick.get_button(3))
+        success = bool(self.joystick.get_button(5))
+
+        return expert_a, (left, right, success, truncated)
 
 
 class GamepadIntervention(gym.ActionWrapper):
@@ -131,16 +131,16 @@ class GamepadIntervention(gym.ActionWrapper):
 
     Includes a gear system for changing translation/rotation speeds with the D-pad.
     """
-    def __init__(self, env, action_indices=None):
+    def __init__(self, env, action_indices=None, gripper_enabled=True):
         super().__init__(env)
 
         # Check if environment action space includes a gripper
-        self.gripper_enabled = (self.action_space.shape != (6,))
+        self.gripper_enabled = gripper_enabled
 
         # Create our gamepad "expert" interface
         self.expert = GamepadExpert()
 
-        # Track left/right bumper presses for the info dict
+        # Track gripper button presses for the info dict
         self.left, self.right = False, False
 
         # If you only want to override certain action indices, specify them here
@@ -152,7 +152,7 @@ class GamepadIntervention(gym.ActionWrapper):
         with the user's gamepad input.
         """
         expert_a, buttons = self.expert.get_action()
-        self.left, self.right = buttons
+        self.left, self.right, self.success, self.truncate = buttons
 
         # Determine if user is actively intervening
         intervened = False
@@ -161,7 +161,7 @@ class GamepadIntervention(gym.ActionWrapper):
             intervened = True
 
         if self.gripper_enabled:
-            # Use bumpers to close/open gripper
+            # Use x to open gripper, a to close
             if self.left:  # close gripper
                 gripper_action = np.random.uniform(-1, -0.9, size=(1,))
                 intervened = True
@@ -169,8 +169,7 @@ class GamepadIntervention(gym.ActionWrapper):
                 gripper_action = np.random.uniform(0.9, 1, size=(1,))
                 intervened = True
             else:
-                gripper_action = np.zeros((1,))
-
+                gripper_action = np.random.uniform(-0.1, 0.1, size=(1,))
             # Combine arm + gripper
             expert_a = np.concatenate((expert_a, gripper_action), axis=0)
             # Optional random perturbation (comment out if not needed)
@@ -199,9 +198,12 @@ class GamepadIntervention(gym.ActionWrapper):
         if replaced:
             info["intervene_action"] = new_action
 
-        # Store left/right bumper usage
+        # Store gripper open/close
         info["left"] = self.left
         info["right"] = self.right
+        info["success_key"] = self.success
+        if self.truncate or truncated:
+            truncated=True
 
         # Store current speeds in the info dict (useful for logging)
         info["translation_speed"] = self.expert.get_translation_speed()
