@@ -55,14 +55,15 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.depth = depth
         self.randomize_domain = randomize_domain
         self.gripper_sleep = 0.6
+        self.gripper_pause = False
         # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.2, 0.7], [0.55, 0.2, 0.95]], dtype=np.float32)
+        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.2, 0.6], [0.55, 0.2, 0.95]], dtype=np.float32)
         self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/10, -np.pi/10],[np.pi/3, np.pi/10, np.pi/10]], dtype=np.float32)
         self.ee_noise_low = [-0.04, -0.05, 0.0]
         self.ee_noise_high = [0.04, 0.05, 0.1]
 
         # Initial poses
-        self.initial_position = np.array([0.1, 0.0, 0.8], dtype=np.float32)
+        self.initial_position = np.array([0.1, 0.0, 0.75], dtype=np.float32)
         self.initial_orientation = [0.725, 0.0, 0.688, 0.0]
         self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
@@ -285,6 +286,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
 
         # Open gripper
         for i in range(20):
+            self.gripper_pub.publish(Float32(data=0.0))
+        for i in range(20):
             self.gripper_pub.publish(Float32(data=self.gripper_open_width))
         self.prev_grasp_time = time.time()
 
@@ -429,17 +432,22 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         pose.orientation.z = float(final_quat[2])
         pose.orientation.w = float(final_quat[3])
 
+        self.goal_pose_pub.publish(pose)
+
         # Handle grasping
 
         if (grasp >= 0.5) and (self.gripper_width > 0.85) and (time.time() - self.prev_grasp_time > self.gripper_sleep):  # close gripper
             width = 0.0
             self.gripper_pub.publish(Float32(data=float(width)))
             self.prev_grasp_time = time.time()
-            time.sleep(self.gripper_sleep)
+            if self.gripper_pause:
+                time.sleep(self.gripper_sleep)
         elif (grasp <= -0.5) and (self.gripper_width < 0.85) and (time.time() - self.prev_grasp_time > self.gripper_sleep):  # open gripper
             self.gripper_pub.publish(Float32(data=float(self.gripper_open_width)))
             self.prev_grasp_time = time.time()
-            time.sleep(self.gripper_sleep)
+            if self.gripper_pause:
+                time.sleep(self.gripper_sleep)
+        print(self.gripper_width)
         
         # if time.time() - self.prev_grasp_time < 0.5:
         #     self.gripper_blocked = True
@@ -463,8 +471,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         #         self.gripper_blocked = False
         #         self.prev_grasp = grasp
         #         self.gripper_vec = self.gripper_dict["stopped"]
-
-        self.goal_pose_pub.publish(pose)
                 
         # Calculate reward
         reward, info = self._compute_reward(action)

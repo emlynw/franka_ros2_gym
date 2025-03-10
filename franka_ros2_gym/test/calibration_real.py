@@ -19,7 +19,7 @@ def main():
     obs, info = env.reset()
     initial_pose = obs['state']['tcp_pose']
     print(f"initial pose: {initial_pose}")
-    for i in range(40):
+    for i in range(20):
         action = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
         obs, reward, terminated, truncated, info = env.step(action)
         print(obs['state']['tcp_pose'])
