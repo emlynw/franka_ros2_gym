@@ -12,7 +12,6 @@ np.set_printoptions(suppress=True)
 def main():
     render_mode = "rgb_array"
     env = gym.make("franka_ros2_gym/ReachIKDeltaRealStrawbEnv", render_mode=render_mode, ee_dof=6, pos_scale= 0.01, rot_scale = 0.2)
-    # env = Quat2EulerWrapper(env)
     env = TimeLimit(env, max_episode_steps=50)    
     waitkey = 1
 
@@ -20,6 +19,7 @@ def main():
     initial_pose = obs['state']['tcp_pose']
     print(f"initial pose: {initial_pose}")
     for i in range(20):
+        # Sequence of actions here
         action = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
         obs, reward, terminated, truncated, info = env.step(action)
         print(obs['state']['tcp_pose'])

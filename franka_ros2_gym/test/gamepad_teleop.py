@@ -9,9 +9,9 @@ np.set_printoptions(suppress=True)
 
 def main():
     render_mode = "rgb_array"
-    env = gym.make("franka_ros2_gym/ReachIKDeltaRealStrawbEnv", render_mode=render_mode, pos_scale = 0.01, rot_scale=0.2, cameras=['wrist1','wrist2'], randomize_domain=False, ee_dof=6)
+    env = gym.make("franka_ros2_gym/ReachIKDeltaRealStrawbEnv", render_mode=render_mode, pos_scale = 0.01, rot_scale=0.2, cameras=['wrist2'], randomize_domain=False, ee_dof=6)
     env = GamepadIntervention(env)
-    env = TimeLimit(env, max_episode_steps=2000)    
+    env = TimeLimit(env, max_episode_steps=50000)    
     waitkey = 10
     resize_resolution = (480, 480)
 
@@ -27,8 +27,8 @@ def main():
             step_start_time = time.time()
             wrist2 = obs["images"]["wrist2"]
             cv2.imshow("wrist2", cv2.resize(cv2.cvtColor(wrist2, cv2.COLOR_RGB2BGR), resize_resolution))
-            wrist1 = cv2.rotate(obs['images']['wrist1'], cv2.ROTATE_180)
-            cv2.imshow("wrist1", cv2.resize(cv2.cvtColor(wrist1, cv2.COLOR_RGB2BGR), resize_resolution))
+            # wrist1 = cv2.rotate(obs['images']['wrist1'], cv2.ROTATE_180)
+            # cv2.imshow("wrist1", cv2.resize(cv2.cvtColor(wrist1, cv2.COLOR_RGB2BGR), resize_resolution))
             cv2.waitKey(waitkey)
             
     
@@ -37,7 +37,7 @@ def main():
                 action = info['intervene_action']
             
             obs, reward, terminated, truncated, info = env.step(action)
-            # print(obs['state']['tcp_pose'])
+            print(obs['state']['tcp_pose'])
             step_time = time.time()-step_start_time
             if step_time < 0.05:
                 time.sleep(0.05 - step_time)

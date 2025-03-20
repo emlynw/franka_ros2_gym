@@ -18,7 +18,6 @@ import cv2
 from collections import deque
 from scipy.spatial.transform import Rotation, Slerp
 import time
-import threading
 from scipy.spatial.transform import Rotation as R
 
 class ReachIKDeltaRealStrawbEnv(gym.Env):
@@ -39,6 +38,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         cameras=["wrist1", "wrist2"],
         depth = False,
         randomize_domain=False,
+        gripper_pause=False,
         **kwargs
     ):
         super().__init__()
@@ -54,11 +54,13 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self.cameras = cameras
         self.depth = depth
         self.randomize_domain = randomize_domain
+        self.gripper_pause = gripper_pause
         self.gripper_sleep = 0.6
-        self.gripper_pause = False
         # Control parameters
-        self._CARTESIAN_BOUNDS = np.array([[0.05, -0.2, 0.6], [0.55, 0.2, 0.95]], dtype=np.float32)
-        self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/10, -np.pi/10],[np.pi/3, np.pi/10, np.pi/10]], dtype=np.float32)
+        # self._CARTESIAN_BOUNDS = np.array([[0.05, -0.2, 0.6], [0.55, 0.2, 0.95]], dtype=np.float32)
+        # self._ROTATION_BOUNDS = np.array([[-np.pi/3, -np.pi/10, -np.pi/10],[np.pi/3, np.pi/10, np.pi/10]], dtype=np.float32)
+        self._CARTESIAN_BOUNDS = np.array([[0.0, -0.4, 0.0], [0.9, 0.4, 0.95]], dtype=np.float32)
+        self._ROTATION_BOUNDS = np.array([[-np.pi, -np.pi, -np.pi],[np.pi, np.pi, np.pi]], dtype=np.float32)
         self.ee_noise_low = [-0.04, -0.05, 0.0]
         self.ee_noise_high = [0.04, 0.05, 0.1]
 
@@ -285,8 +287,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         time.sleep(2)  # Adjust based on your controller's behavior
 
         # Open gripper
-        for i in range(20):
-            self.gripper_pub.publish(Float32(data=0.0))
+        # for i in range(20):
+        #     self.gripper_pub.publish(Float32(data=0.0))
         for i in range(20):
             self.gripper_pub.publish(Float32(data=self.gripper_open_width))
         self.prev_grasp_time = time.time()
@@ -447,7 +449,6 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
             self.prev_grasp_time = time.time()
             if self.gripper_pause:
                 time.sleep(self.gripper_sleep)
-        print(self.gripper_width)
         
         # if time.time() - self.prev_grasp_time < 0.5:
         #     self.gripper_blocked = True

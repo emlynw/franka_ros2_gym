@@ -2,3 +2,4 @@ __pycache__/
 *.egg-info/
 snapshots/
 *.png
+*.mp4
