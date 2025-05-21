@@ -20,7 +20,7 @@ from scipy.spatial.transform import Rotation, Slerp
 import time
 from scipy.spatial.transform import Rotation as R
 
-class ReachIKDeltaRealStrawbEnv(gym.Env):
+class ReachIKAbsRealStrawbEnv(gym.Env):
     metadata = {
         "render_modes": ["rgb_array"],
         "render_fps": 10,
