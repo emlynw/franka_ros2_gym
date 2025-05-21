@@ -30,7 +30,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         self,
         image_obs=True,
         ee_dof=6,  # 3 for position only, 4 for position+yaw
-        width=480,
+        width=640,
         height=480,
         pos_scale=0.01,
         rot_scale=0.2,
@@ -67,6 +67,8 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # Initial poses
         self.initial_position = np.array([0.1, 0.0, 0.75], dtype=np.float32)
         self.initial_orientation = [0.725, 0.0, 0.688, 0.0]
+        # self.initial_position = np.array([0.3, 0.0, 0.5], dtype=np.float32)
+        # self.initial_orientation = [1, 0.0, 0.0, 0.0]
         self.initial_rotation = Rotation.from_quat(self.initial_orientation)
         
         # Action and observation spaces
@@ -122,7 +124,7 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         # self.gripper_vec = self.gripper_dict["stopped"]
         self.grasp = -1.0
         self.gripper_blocked = False
-        self.gripper_open_width = 0.015
+        self.gripper_open_width = 0.08
         self.ros_setup()
         self.last_step_time = time.time()
 
@@ -211,11 +213,11 @@ class ReachIKDeltaRealStrawbEnv(gym.Env):
         except CvBridgeError as e:
             print(e)
             return None
-        
+        h,w = image.shape[:2]
         if depth:
-            crop_resolution = (min(image.shape), min(image.shape))
+            crop_resolution = (h, w)
         else:
-            crop_resolution = (min(image.shape[:2]), min(image.shape[:2]))
+            crop_resolution = (h, w)
         if image.shape[:2] != crop_resolution:
             center = image.shape
             x = center[1] / 2 - crop_resolution[1] / 2
